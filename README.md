@@ -1,56 +1,51 @@
-# Projet SAE C — Outils de déchiffrement Vigenère
+# Projet SAE — Outils de chiffrement et de cryptanalyse Vigenère (C · Bash)
 
-Ensemble d'outils en C et de scripts Bash permettant de chiffrer, déchiffrer et **casser** des fichiers chiffrés avec le chiffrement de Vigenère, développé en binôme dans le cadre d'un projet universitaire (SAE).
+Ensemble d'outils en C et de scripts Bash permettant de chiffrer, déchiffrer et **casser** des fichiers chiffrés avec une variante du chiffrement de Vigenère, développé en binôme dans le cadre d'un projet universitaire (SAE).
 
-## Description générale
+## Contexte
 
-Cette partie en C permet de comprendre le fonctionnement des outils utilisés par les scripts Bash (`.sh`) pour restaurer des fichiers chiffrés :
+Le scénario du projet : des archives d'un système compromis contiennent des fichiers chiffrés par un attaquant. Les scripts Bash :
 
-- **`findkey`** — retrouve la clé utilisée pour le chiffrement.
-- **`decipher`** — déchiffre un fichier à partir de cette clé.
-- **`cipher`** — chiffre un fichier avec une clé donnée.
+1. repèrent dans `var/log/auth.log` la dernière connexion réussie de l'utilisateur `admin` ;
+2. classent les fichiers en « modifiés » (après cette date, donc chiffrés) et « sains » ;
+3. retrouvent la clé en comparant un fichier chiffré avec sa version saine (même nom, même taille) ;
+4. déchiffrent tous les fichiers modifiés et les restaurent.
 
-## Fonctionnement du déchiffrement
+## Principe cryptographique
 
-Le déchiffrement d'un fichier suit trois étapes :
+- Le Vigenère est appliqué sur l'**alphabet Base64** (64 caractères : `A-Z`, `a-z`, `0-9`, `+`, `/`) et non sur les 26 lettres : chaque fichier est d'abord encodé en Base64, ce qui permet de chiffrer n'importe quel fichier, y compris binaire.
+- Les caractères de bourrage `=` ne sont ni chiffrés ni pris en compte.
+- La récupération de clé (`findkey`) est une **attaque à clair connu** : à partir d'un couple clair / chiffré, on calcule la suite des décalages, puis on détecte le motif qui se répète pour isoler la clé.
 
-1. **Encodage Base64** du fichier chiffré.
-2. **Déchiffrement Vigenère** avec une clé elle-même encodée en Base64 (les caractères de bourrage Base64 ne sont pas modifiés ni pris en compte).
-3. **Décodage Base64** pour obtenir un fichier lisible.
+## Les outils C
 
-## Stockage de la clé
+| Programme | Rôle | Utilisation |
+|-----------|------|-------------|
+| `cipher` | Chiffre un fichier (modifié sur place) | `./cipher <cle> <fichier>` |
+| `decipher` | Déchiffre un fichier (modifié sur place) | `./decipher <cle> <fichier>` |
+| `findkey` | Retrouve la clé à partir d'un clair et de son chiffré (encodés en Base64) | `./findkey <clair> <chiffre> [-o fichier_sortie]` |
 
-Le script `restore-archives.sh` stocke la clé trouvée par `findkey` dans le fichier `temp/KEY`, afin de pouvoir vérifier par la suite si celle-ci est imprimable ou non.
+Sans `-o`, `findkey` affiche la clé sur la sortie standard.
 
-Compilation manuelle de `findkey` :
-
-```bash
-gcc -o temp/KEY src/findkey.c src/fonction.c
-```
-
-En pratique, c'est `restore-archives.sh` qui s'en charge automatiquement.
-
-## Prérequis
-
-- Un compilateur C (ex. `gcc`)
-- `make` (optionnel, pour compiler via le `Makefile`)
-
-## Compilation via Makefile
+## Compilation
 
 ```bash
 cd src
-make
+make        # génère cipher, decipher, findkey et la bibliothèque statique libstat.a
+make clean  # supprime les fichiers générés
 ```
 
-Génère les exécutables `cipher`, `decipher` et `findkey`.
+Prérequis : `gcc` et `make`.
 
-## Utilisation
+## Les scripts Bash
 
-```bash
-./cipher fichier_clair.txt cle > fichier_chiffre.txt
-./decipher fichier_chiffre.txt cle > fichier_dechiffre.txt
-./findkey fichier_clair.txt fichier_chiffre.txt
-```
+| Script | Rôle |
+|--------|------|
+| `import-archives.sh` | Importe des archives `.tar.gz` dans le répertoire de travail `.sh-toolbox` et les enregistre dans `archives.txt` (option `-f` pour forcer l'écrasement) |
+| `ls-toolbox.sh` | Liste les archives (date d'import, clé trouvée) et signale les incohérences avec `archives.txt` |
+| `check-toolbox.sh` | Analyse une archive : date de dernière connexion admin, fichiers modifiés / sains |
+| `restore-archives.sh` | Retrouve la clé avec `findkey`, puis déchiffre et restaure les fichiers |
+| `restore-toolbox.sh` | Répare les incohérences entre `archives.txt` et le contenu de `.sh-toolbox` |
 
 ## Structure du projet
 
@@ -58,20 +53,20 @@ Génère les exécutables `cipher`, `decipher` et `findkey`.
 src/
 ├── cipher.c      # Chiffrement
 ├── decipher.c    # Déchiffrement
-├── findkey.c      # Recherche de clé (cryptanalyse)
-├── fonction.c     # Fonctions utilitaires
-└── Makefile       # Automatisation de la compilation
-*.sh               # Scripts Bash (import, restauration, gestion d'archives)
+├── findkey.c     # Recherche de clé (attaque à clair connu)
+├── fonction.c    # Fonctions communes (table de Vigenère, déchiffrement, détection du motif de la clé)
+└── Makefile
+*.sh              # Scripts Bash (import, analyse, restauration)
 ```
 
 ## Ce que ce projet démontre
 
-- Manipulation bas niveau de fichiers et de chaînes de caractères en C.
-- Compréhension du fonctionnement du chiffrement de Vigenère combiné à l'encodage Base64, et de ses faiblesses (récupération de clé).
-- Organisation d'un projet C avec Makefile et bibliothèque statique.
-- Scripting Bash pour l'automatisation de tâches (archivage, restauration).
-- Travail en binôme sur un projet universitaire.
+- Manipulation bas niveau de fichiers en C (lecture/écriture par blocs, réécriture sur place) et gestion de la mémoire.
+- Compréhension du chiffrement de Vigenère, de ses faiblesses et d'une attaque à clair connu.
+- Analyse de logs (`auth.log`) et horodatage des fichiers pour identifier des fichiers compromis, dans une logique proche de la réponse à incident.
+- Organisation d'un projet C avec Makefile et bibliothèque statique, automatisation en Bash.
+- Travail en binôme.
 
 ## Auteurs
 
-Michael Djeatsa Keleko & Mohamed Elbrrah — SAE, partie langage C, étudiants en L3 MIAGE Informatique.
+Michael Djeatsa Keleko & Mohamed El brrah — projet universitaire (SAE) réalisé en binôme, MIAGE Informatique, Université de Picardie Jules Verne.
